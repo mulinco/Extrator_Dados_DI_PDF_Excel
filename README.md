@@ -101,8 +101,8 @@ Siga os passos abaixo para configurar e executar o script em seu ambiente.
 
 ## ✍️ Autora
 
-* **[Maria Rodrigues]**
-* [(https://www.linkedin.com/in/mariaclararodrigues3113/)]
-* [(github.com/mulinco)]
+* **[Maria Rodrigues](https://www.linkedin.com/in/mariaclararodrigues3113/)**
+* [LinkedIn Profile](https://www.linkedin.com/in/mariaclararodrigues3113/)
+* [GitHub Profile](https://github.com/mulinco)
 
 ---
