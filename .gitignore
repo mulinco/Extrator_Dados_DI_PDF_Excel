@@ -1,0 +1,14 @@
+# Ignorar arquivos de credenciais
+mycreds.txt
+client_secrets.json
+
+# Ignorar pasta de PDFs temporários
+temp_declaracoes_importacao/
+
+# Ignorar arquivos do ambiente virtual
+venv/
+.venv/
+
+# Ignorar arquivos de cache do Python
+__pycache__/
+*.pyc

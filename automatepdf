@@ -1,0 +1,211 @@
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
+import os
+import pandas as pd
+import fitz # PyMuPDF para manipulação de PDFs
+import re
+import shutil # Para limpar a pasta temporária no final (opcional)
+
+# --- Autenticação ---
+gauth = GoogleAuth()
+
+# Configurações para offline access e escopo (para a versão do PyDrive2 que você está usando)
+gauth.DEFAULT_SETTINGS['oauth_scope'] = [
+    'https://www.googleapis.com/auth/drive.readonly'
+]
+gauth.DEFAULT_SETTINGS['access_type'] = 'offline'
+
+# Tenta carregar credenciais salvas, se existirem
+gauth.LoadCredentialsFile("mycreds.txt")
+
+if gauth.credentials is None:
+    # Autentica se não houver credenciais salvas, solicitando refresh token
+    gauth.LocalWebserverAuth()
+elif gauth.access_token_expired:
+    # Refresh token se expirado
+    gauth.Refresh()
+else:
+    # Autentica usando credenciais salvas
+    gauth.Authorize()
+
+gauth.SaveCredentialsFile("mycreds.txt") # Salva as credenciais para futuras execuções (agora com refresh token)
+
+drive = GoogleDrive(gauth)
+print("Autenticação com Google Drive bem-sucedida!\n")
+
+# --- Configurações de Pastas ---
+folder_id = '1oRjkfbORn2Erxa1FXbWSv15eCCUkwzTT' # Seu ID da pasta do Drive
+
+temp_pdf_folder = 'temp_declaracoes_importacao'
+os.makedirs(temp_pdf_folder, exist_ok=True) # Cria a pasta se não existir
+
+# --- Download de PDFs do Drive ---
+downloaded_files_paths = []
+
+try:
+    query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
+    file_list = drive.ListFile({'q': query}).GetList()
+
+    if not file_list:
+        print("Nenhum arquivo PDF encontrado na pasta especificada.")
+    else:
+        print(f"Encontrados {len(file_list)} arquivos PDF. Baixando...")
+        for file in file_list:
+            file_path = os.path.join(temp_pdf_folder, file['title'])
+
+            if not os.path.exists(file_path):
+                try:
+                    print(f"  Baixando: {file['title']} ({file['id']})...")
+                    file.GetContentFile(file_path)
+                    downloaded_files_paths.append(file_path)
+                    print(f"  Baixado para: {file_path}")
+                except Exception as e:
+                    print(f"  ERRO ao baixar {file['title']}: {e}")
+            else:
+                print(f"  Arquivo já existe localmente, pulando download: {file['title']}")
+                downloaded_files_paths.append(file_path) # Adiciona mesmo se já existe, para processar
+
+    print("\nDownload de PDFs concluído (ou pulado para arquivos existentes).")
+    print(f"Total de arquivos para processar: {len(downloaded_files_paths)}")
+
+except Exception as e:
+    print(f"Ocorreu um erro ao listar ou baixar os arquivos do Drive: {e}")
+    downloaded_files_paths = [] # Garante que a lista esteja vazia em caso de erro
+
+# --- Função de Extração de Dados do PDF ---
+# Esta função deve estar definida antes de ser chamada!
+def extract_di_data(pdf_path):
+    data = {
+        "Nome do Processo": None,
+        "INVOICE": None,
+        "HAWB": None,
+        "Nome do Arquivo PDF": os.path.basename(pdf_path)
+    }
+
+    try:
+        doc = fitz.open(pdf_path)
+        page_1_text = ""
+        if len(doc) >= 1: # Verifica se a página 1 existe
+            page_1_text = doc[0].get_text()
+
+            # <<<<<<<<<<<<<< COLOQUE ESTE BLOCO AQUI >>>>>>>>>>>>>>>>>
+            # --- DEBUG: Imprime o texto da Página 1 para depuração ---
+            print(f"\n--- Texto da Página 1 de '{data['Nome do Arquivo PDF']}' ---")
+            print(page_1_text)
+            print("--------------------------------------------------\n")
+            # --------------------------------------------------------
+
+            # Regex para "Declaração" (na Página 1)
+            match_di_num = re.search(
+                r'Declaração:\s*([A-Za-z0-9\-\_/]+)',
+                page_1_text,
+                re.IGNORECASE | re.DOTALL
+            )
+            if match_di_num:
+                data["D.I."] = match_di_num.group(1).strip()
+            # else: pass
+
+
+        if len(doc) >= 2:
+            page_2_text = doc[1].get_text()
+
+            # DEBUG: 
+            # print(f"\n--- Texto extraído da Página 2 de '{os.path.basename(pdf_path)}' ---")
+            # print(page_2_text)
+            # print("--------------------------------------------------\n")
+
+            # REGEX para "Nossa Referência" (Nome do Processo)
+            match_ref = re.search(
+                r'Nossa Referencia[\s\.]*:\s*([A-Za-z0-9\-\_]+)',
+                page_2_text,
+                re.IGNORECASE | re.DOTALL
+            )
+            if match_ref:
+                data["Nome do Processo"] = match_ref.group(1).strip()
+
+            # --- REGEX MAIS PRECISO PARA "Fatura Comercial" (INVOICE) ---
+            # Este Regex tentará capturar o valor após "Fatura Comercial",
+
+            match_invoice = re.search(
+                r'(?:Fatura Comercial|\bFatura Comerci\s*\n\s*al|\bFatura\s*\n\s*Comercial)[\s\.:]*([A-Za-z0-9\-\_\,\s]+?)(?=\s*(?:MAWB|HAWB|$))', # <-- MUDANÇA CRÍTICA AQUI
+                page_2_text,
+                re.IGNORECASE | re.DOTALL
+            )
+            if match_invoice:
+                data["INVOICE"] = match_invoice.group(1).strip()
+            else:
+                pass # Mantém None se não encontrado
+
+            # REGEX para "HAWB"
+            match_hawb = re.search(
+                r'HAWB[\s\.]*:\s*([A-Za-z0-9\-\_]+)',
+                page_2_text,
+                re.IGNORECASE | re.DOTALL
+            )
+            if match_hawb:
+                data["HAWB"] = match_hawb.group(1).strip()
+
+            doc.close()
+        else:
+            print(f"  Aviso: PDF '{os.path.basename(pdf_path)}' tem menos de 2 páginas. Pulando extração de dados.")
+    except Exception as e:
+        print(f"  ERRO ao processar PDF '{os.path.basename(pdf_path)}' para extração: {e}")
+        data["Nome do Processo"] = None
+        data["INVOICE"] = None
+        data["HAWB"] = None
+
+    return data
+    
+
+# --- Processamento dos PDFs Baixados  ---
+print("\nIniciando a extração de dados dos PDFs baixados...")
+
+extracted_records = []
+df_final = pd.DataFrame() # <--- NOVIDADE: Inicializa df_final como um DataFrame vazio
+
+if downloaded_files_paths: # Verifica se a lista não está vazia antes de tentar processar
+    print(f"Número de arquivos PDF para processar na extração: {len(downloaded_files_paths)}")
+    for pdf_file_path in downloaded_files_paths:
+        print(f"Processando extração para: {os.path.basename(pdf_file_path)}")
+        record = extract_di_data(pdf_file_path) # Chama a função para cada PDF
+        extracted_records.append(record)
+
+    # Cria o DataFrame a partir da lista de dicionários
+    df_final = pd.DataFrame(extracted_records) # <--- df_final é criado com os dados extraídos
+
+    # Reordenar colunas para a saída do Excel (AGORA COM D.I. NA ORDEM DESEJADA)
+    output_columns_order = ["D.I.", "Nome do Processo", "INVOICE", "HAWB", "Nome do Arquivo PDF"]
+    # Garante que todas as colunas existem antes de reordenar
+    for col in output_columns_order:
+        if col not in df_final.columns:
+            df_final[col] = None # Adiciona colunas ausentes como None
+
+    df_final = df_final[output_columns_order] # <--- AGORA df_final já existe!
+
+    print("\n--- Dados Extraídos para Excel ---")
+    print(df_final.head()) # Mostra as primeiras linhas do DataFrame final
+    print(f"\nTotal de registros extraídos e processados: {len(df_final)}")
+
+    # Exportando para o Excel
+    output_excel_path = "Controle_de_Declaracoes_Importacao.xlsx"
+    df_final.to_excel(output_excel_path, index=False)
+    print(f"\nDados consolidados exportados para {output_excel_path}")
+
+    # Opcional: Limpar os PDFs temporários
+    # import shutil
+    # shutil.rmtree(temp_pdf_folder)
+    # print(f"Pasta temporária '{temp_pdf_folder}' removida.")
+
+else:
+    print("\nNenhum PDF para processar na fase de extração.")
+    # Se não houver PDFs, podemos criar um DataFrame vazio para exportar um Excel vazio
+    output_columns_order = ["D.I.", "Nome do Processo", "INVOICE", "HAWB", "Nome do Arquivo PDF"]
+    df_final = pd.DataFrame(columns=output_columns_order) # <--- Cria um DataFrame vazio com as colunas
+    output_excel_path = "Controle_de_Declaracoes_Importacao.xlsx"
+    df_final.to_excel(output_excel_path, index=False)
+    print(f"\nExcel vazio criado em {output_excel_path} pois não há PDFs para processar.")
+
+    # Opcional: Limpar os PDFs temporários 
+    # import shutil
+    # shutil.rmtree(temp_pdf_folder)
+    # print(f"Pasta temporária '{temp_pdf_folder}' removida.")
