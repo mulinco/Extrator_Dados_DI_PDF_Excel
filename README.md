@@ -102,7 +102,7 @@ Siga os passos abaixo para configurar e executar o script em seu ambiente.
 ## ✍️ Autora
 
 * **[Maria Rodrigues]**
-* [https://www.linkedin.com/in/mariaclararodrigues3113/]
-* [github.com/mulinco]
+* [(https://www.linkedin.com/in/mariaclararodrigues3113/)]
+* [(github.com/mulinco)]
 
 ---
