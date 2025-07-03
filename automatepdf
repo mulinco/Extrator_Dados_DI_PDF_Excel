@@ -123,7 +123,7 @@ def extract_di_data(pdf_path):
             if match_ref:
                 data["Nome do Processo"] = match_ref.group(1).strip()
 
-            # --- REGEX MAIS PRECISO PARA "Fatura Comercial" (INVOICE) ---
+            # --- "Fatura Comercial" (INVOICE) ---
             # Este Regex tentará capturar o valor após "Fatura Comercial",
 
             match_invoice = re.search(
@@ -171,11 +171,10 @@ if downloaded_files_paths: # Verifica se a lista não está vazia antes de tenta
         extracted_records.append(record)
 
     # Cria o DataFrame a partir da lista de dicionários
-    df_final = pd.DataFrame(extracted_records) # <--- df_final é criado com os dados extraídos
+    df_final = pd.DataFrame(extracted_records) 
 
-    # Reordenar colunas para a saída do Excel (AGORA COM D.I. NA ORDEM DESEJADA)
+    # Reordenar colunas para a saída do Excel 
     output_columns_order = ["D.I.", "Nome do Processo", "INVOICE", "HAWB", "Nome do Arquivo PDF"]
-    # Garante que todas as colunas existem antes de reordenar
     for col in output_columns_order:
         if col not in df_final.columns:
             df_final[col] = None # Adiciona colunas ausentes como None
@@ -198,7 +197,6 @@ if downloaded_files_paths: # Verifica se a lista não está vazia antes de tenta
 
 else:
     print("\nNenhum PDF para processar na fase de extração.")
-    # Se não houver PDFs, podemos criar um DataFrame vazio para exportar um Excel vazio
     output_columns_order = ["D.I.", "Nome do Processo", "INVOICE", "HAWB", "Nome do Arquivo PDF"]
     df_final = pd.DataFrame(columns=output_columns_order) # <--- Cria um DataFrame vazio com as colunas
     output_excel_path = "Controle_de_Declaracoes_Importacao.xlsx"
